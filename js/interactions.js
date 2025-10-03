@@ -19,7 +19,8 @@ export function initInteractions({ project, canvasManager, history, ui }) {
   let isResizing = false;
   let resizeHandle = null;
   let resizeStart = { x: 0, y: 0 };
-  let sizeStart = { w: 0, h: 0, x: 0, y: 0, layerId: null };
+  // sizeStart now stores measured w/h AND fontSize (for text)
+  let sizeStart = { w: 0, h: 0, x: 0, y: 0, layerId: null, fontSize: null };
 
   let isRotating = false;
   let rotateStartAngle = 0;
@@ -144,7 +145,7 @@ export function initInteractions({ project, canvasManager, history, ui }) {
     if (ui && typeof ui.refreshPagesList === "function") ui.refreshPagesList();
   };
 
-  // CANCEL text edit: restore old text and clear pending state (important to avoid freezing)
+  // CANCEL text edit: restore old text and clear pending state
   window.cancelTextEdit = function () {
     if (!pendingEdit) {
       isEditing = false;
@@ -164,6 +165,7 @@ export function initInteractions({ project, canvasManager, history, ui }) {
     if (ui && typeof ui.refreshPagesList === "function") ui.refreshPagesList();
   };
 
+  // helper to set text property (used by UI)
   window.setActiveTextProp = function (prop, value) {
     const page = project.activePage;
     const layer = page.layers.find((l) => l.id === canvasManager.activeLayerId);
@@ -205,23 +207,6 @@ export function initInteractions({ project, canvasManager, history, ui }) {
       if (ui && typeof ui.refreshPagesList === "function")
         ui.refreshPagesList();
     }
-  };
-
-  window.toggleActiveProp = function (prop) {
-    const page = project.activePage;
-    const layer = page.layers.find((l) => l.id === canvasManager.activeLayerId);
-    if (!layer) return;
-    const cmd = new ChangePropCommand(
-      project,
-      project.activePageIndex,
-      layer.id,
-      prop,
-      !!layer[prop],
-      !layer[prop]
-    );
-    history.execute(cmd);
-    canvasManager.render();
-    if (ui && typeof ui.refreshPagesList === "function") ui.refreshPagesList();
   };
 
   // --- Hit testing helpers ---
@@ -299,8 +284,18 @@ export function initInteractions({ project, canvasManager, history, ui }) {
   // --- snapping & bounds helpers ---
   function computeSnapsForMove(layer, candidateX, candidateY) {
     const page = project.activePage;
-    const w = layer.width || 0,
-      h = layer.height || 0;
+    // for robust snapping use measured size (works for images and text)
+    const measured =
+      typeof layer.measure === "function"
+        ? layer.measure(canvasManager.ctx)
+        : {
+            x: candidateX,
+            y: candidateY,
+            w: layer.width || 0,
+            h: layer.height || 0,
+          };
+    const w = measured.w,
+      h = measured.h;
     const guides = [];
     let snapX = candidateX;
     let snapY = candidateY;
@@ -342,7 +337,15 @@ export function initInteractions({ project, canvasManager, history, ui }) {
     // snap to other layers edges (axis aligned)
     for (const other of page.layers) {
       if (other.id === layer.id) continue;
-      const om = other.measure();
+      const om =
+        typeof other.measure === "function"
+          ? other.measure(canvasManager.ctx)
+          : {
+              x: other.x || 0,
+              y: other.y || 0,
+              w: other.width || 0,
+              h: other.height || 0,
+            };
       // left align
       if (Math.abs(candidateX - om.x) <= SNAP) {
         snapX = om.x;
@@ -431,13 +434,39 @@ export function initInteractions({ project, canvasManager, history, ui }) {
         isResizing = true;
         resizeHandle = hit.handleName;
         resizeStart = pt;
-        sizeStart = {
-          w: hit.layer.width || 1,
-          h: hit.layer.height || 1,
-          x: hit.layer.x,
-          y: hit.layer.y,
-          layerId: hit.layer.id,
-        };
+
+        // IMPORTANT: measure current width/height properly for text and images
+        if (dragLayer.type === "text") {
+          const measured = dragLayer.measure(canvasManager.ctx);
+          sizeStart = {
+            w: measured.w || 1,
+            h: measured.h || 1,
+            x: dragLayer.x,
+            y: dragLayer.y,
+            layerId: dragLayer.id,
+            fontSize: dragLayer.fontSize || 48,
+          };
+        } else {
+          // image or other layer that exposes width/height
+          const measured =
+            typeof dragLayer.measure === "function"
+              ? dragLayer.measure(canvasManager.ctx)
+              : {
+                  w: dragLayer.width || 1,
+                  h: dragLayer.height || 1,
+                  x: dragLayer.x,
+                  y: dragLayer.y,
+                };
+          sizeStart = {
+            w: measured.w || 1,
+            h: measured.h || 1,
+            x: measured.x || dragLayer.x,
+            y: measured.y || dragLayer.y,
+            layerId: dragLayer.id,
+            fontSize: null,
+          };
+        }
+
         canvasManager.snapGuides = [];
       } else if (hit.hitType === "rotate") {
         rotateLayer = hit.layer;
@@ -498,7 +527,7 @@ export function initInteractions({ project, canvasManager, history, ui }) {
       return;
     }
 
-    // RESIZE
+    // RESIZE (handles both image and text)
     if (
       isResizing &&
       dragLayer &&
@@ -543,11 +572,34 @@ export function initInteractions({ project, canvasManager, history, ui }) {
         }
       }
 
+      // SPECIAL CASE: TEXT LAYERS -> change fontSize instead of width/height
+      if (dragLayer.type === "text") {
+        // compute scale from newW / originalWidth
+        const originalW = Math.max(1, sizeStart.w);
+        const scale = newW / originalW;
+        const newFontSize = Math.max(
+          8,
+          Math.round((sizeStart.fontSize || dragLayer.fontSize || 12) * scale)
+        );
+
+        // apply font size live and compute updated measured box for snapping
+        dragLayer.fontSize = newFontSize;
+        const measured = dragLayer.measure(canvasManager.ctx);
+        // compute snap/clamp based on measured box and candidate top-left (we kept newX/newY values)
+        const snaps = computeSnapsForMove(dragLayer, newX, newY);
+        canvasManager.snapGuides = snaps.guides;
+        dragLayer.x = snaps.x;
+        dragLayer.y = snaps.y;
+
+        canvasManager.render();
+        return;
+      }
+
+      // IMAGE or other layer (the old path)
       // Clamp so object stays within page
       const pageW = project.activePage.w,
         pageH = project.activePage.h;
       if (newX < 0) {
-        // shift right, reduce width accordingly
         newW = Math.max(20, newW + newX);
         newX = 0;
       }
@@ -559,7 +611,6 @@ export function initInteractions({ project, canvasManager, history, ui }) {
       if (newY + newH > pageH) newH = Math.max(20, pageH - newY);
 
       // Apply candidate and compute snapping for top-left
-      // temporarily set width/height for candidate snapping
       dragLayer.width = newW;
       dragLayer.height = newH;
       const snaps = computeSnapsForMove(dragLayer, newX, newY);
@@ -612,26 +663,43 @@ export function initInteractions({ project, canvasManager, history, ui }) {
       const pageIndex = project.activePageIndex;
       const layer = project.activePage.layers.find((l) => l.id === layerId);
       if (layer) {
-        const fromSize = {
-          x: sizeStart.x,
-          y: sizeStart.y,
-          w: sizeStart.w,
-          h: sizeStart.h,
-        };
-        const toSize = {
-          x: layer.x,
-          y: layer.y,
-          w: layer.width,
-          h: layer.height,
-        };
-        const cmd = new ResizeLayerCommand(
-          project,
-          pageIndex,
-          layerId,
-          fromSize,
-          toSize
-        );
-        history.execute(cmd);
+        // For text, record font size change via ChangePropCommand so undo/redo works
+        if (layer.type === "text") {
+          const oldFontSize = sizeStart.fontSize || 12;
+          const newFontSize = layer.fontSize;
+          if (oldFontSize !== newFontSize) {
+            const cmd = new ChangePropCommand(
+              project,
+              pageIndex,
+              layerId,
+              "fontSize",
+              oldFontSize,
+              newFontSize
+            );
+            history.execute(cmd);
+          }
+        } else {
+          const fromSize = {
+            x: sizeStart.x,
+            y: sizeStart.y,
+            w: sizeStart.w,
+            h: sizeStart.h,
+          };
+          const toSize = {
+            x: layer.x,
+            y: layer.y,
+            w: layer.width,
+            h: layer.height,
+          };
+          const cmd = new ResizeLayerCommand(
+            project,
+            pageIndex,
+            layerId,
+            fromSize,
+            toSize
+          );
+          history.execute(cmd);
+        }
         canvasManager.snapGuides = [];
         canvasManager.render();
         if (ui && typeof ui.refreshPagesList === "function")
