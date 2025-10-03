@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Portrait Editor — Phase 6</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="left">
+        <button id="btnAddText">Add Text</button>
+        <button id="btnAddImage">Add Image (New Page)</button>
+        <button id="btnAddOverlay">Add Overlay Image</button>
+        <input
+          id="overlayLoader"
+          type="file"
+          accept="image/*"
+          style="display: none"
+        />
+        <button id="btnAddPage">Add Blank Page</button>
+        <button id="btnDeletePage">Delete Page</button>
+      </div>
+
+      <div class="center" id="textToolbar">
+        <label
+          >Font
+          <select id="fontFamilySelect">
+            <option value="sans-serif">Sans</option>
+            <option value="serif">Serif</option>
+            <option value="monospace">Mono</option>
+          </select>
+        </label>
+        <label
+          >Size
+          <input id="fontSizeRange" type="range" min="12" max="200" value="48"
+        /></label>
+        <label
+          >Color <input id="fontColor" type="color" value="#ffffff"
+        /></label>
+        <label
+          >Align
+          <select id="fontAlign">
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
+        </label>
+        <button id="btnBold">B</button>
+        <button id="btnItalic">I</button>
+      </div>
+
+      <div class="right">
+        <!-- Undo / Redo buttons (restored) -->
+        <button id="btnUndo">Undo</button>
+        <button id="btnRedo">Redo</button>
+
+        <button id="btnBringFront">Bring Forward</button>
+        <button id="btnSendBack">Send Back</button>
+
+        <select id="savedList"></select>
+        <button id="btnLoadSaved">Load</button>
+        <button id="btnDeleteSaved">Delete</button>
+        <button id="btnSave">Save</button>
+        <button id="btnDownload">Download JSON</button>
+        <button id="btnExportImage">Export PNG</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="canvas-area">
+        <div class="canvas-wrapper" id="canvasWrapper">
+          <canvas id="editorCanvas" tabindex="0"></canvas>
+          <div
+            class="canvas-overlay"
+            id="canvasOverlay"
+            aria-hidden="true"
+          ></div>
+          <div
+            id="textEditor"
+            contenteditable="true"
+            spellcheck="false"
+            aria-hidden="true"
+          ></div>
+          <div id="resizeHint" aria-hidden="true">
+            Hold Shift to preserve aspect ratio
+          </div>
+        </div>
+      </section>
+
+      <aside class="pages-strip" id="pagesStrip">
+        <div class="pages-title">Pages</div>
+        <div id="pagesList" class="pages-list"></div>
+      </aside>
+    </main>
+
+    <input
+      type="file"
+      id="imageLoader"
+      accept="image/*"
+      style="display: none"
+    />
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
