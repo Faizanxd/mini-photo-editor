@@ -38,6 +38,14 @@ export class CanvasManager {
     const page = this.project.activePage;
     if (!page) return;
     this.clear();
+
+    // ensure page background is white for blank pages (draw white before page.draw)
+    this.ctx.save();
+    this.ctx.fillStyle = "#ffffff";
+    this.ctx.fillRect(0, 0, page.w, page.h);
+    this.ctx.restore();
+
+    // draw the page (page.draw will draw background image if any, overlays, text, etc.)
     page.draw(this.ctx);
 
     // draw snapping guides if any
@@ -108,7 +116,6 @@ export class CanvasManager {
           x: (corners[0].x + corners[1].x) / 2,
           y: (corners[0].y + corners[1].y) / 2,
         };
-        // direction from center to topCenter, normalize and extend
         const dirX = topCenter.x - cx;
         const dirY = topCenter.y - cy;
         const len = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
@@ -164,6 +171,11 @@ export class CanvasManager {
     const ctx = off.getContext("2d");
     ctx.save();
     ctx.scale(scale, scale);
+
+    // ensure white bg for thumbnail as well
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, page.w, page.h);
+
     page.draw(ctx);
     ctx.restore();
     return off.toDataURL("image/png");

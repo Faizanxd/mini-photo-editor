@@ -7,7 +7,7 @@ export class Page {
     this.layers = [];
     this.w = w;
     this.h = h;
-    this.background = "#000000";
+    this.background = "#ffffff";
     this.backgroundDataUrl = null;
     this.backgroundLayer = null; // will hold ImageLayer if a background image is set
   }

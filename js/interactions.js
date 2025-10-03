@@ -164,56 +164,22 @@ export function initInteractions({ project, canvasManager, history, ui }) {
     if (ui && typeof ui.refreshPagesList === "function") ui.refreshPagesList();
   };
 
-  // helper to set text property (used by UI)
   window.setActiveTextProp = function (prop, value) {
     const page = project.activePage;
     const layer = page.layers.find((l) => l.id === canvasManager.activeLayerId);
     if (!layer) return;
     if (layer.type === "text") {
-      if (prop === "align") {
-        const ctx = canvasManager.ctx;
-        ctx.save();
-        ctx.font = layer.getFontString();
-        const metrics = ctx.measureText(layer.text || "");
-        const width = metrics.width || 0;
-        ctx.restore();
-        const box = layer.measure(canvasManager.ctx);
-        const visualCenter = box.x + width / 2;
-        let newX;
-        if (value === "left") newX = visualCenter - width / 2;
-        else if (value === "center") newX = visualCenter;
-        else newX = visualCenter + width / 2;
-
-        const cmdMove = new MoveLayerCommand(
-          project,
-          project.activePageIndex,
-          layer.id,
-          { x: layer.x, y: layer.y },
-          { x: newX, y: layer.y }
-        );
-        const cmdAlign = new ChangePropCommand(
-          project,
-          project.activePageIndex,
-          layer.id,
-          "align",
-          layer.align,
-          value
-        );
-        history.execute(cmdMove);
-        history.execute(cmdAlign);
-      } else {
-        const oldVal = layer[prop];
-        if (oldVal === value) return;
-        const cmd = new ChangePropCommand(
-          project,
-          project.activePageIndex,
-          layer.id,
-          prop,
-          oldVal,
-          value
-        );
-        history.execute(cmd);
-      }
+      const oldVal = layer[prop];
+      if (oldVal === value) return;
+      const cmd = new ChangePropCommand(
+        project,
+        project.activePageIndex,
+        layer.id,
+        prop,
+        oldVal,
+        value
+      );
+      history.execute(cmd);
       canvasManager.render();
       if (ui && typeof ui.refreshPagesList === "function")
         ui.refreshPagesList();

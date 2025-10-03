@@ -1,6 +1,7 @@
 // FILE: js/ui.js
 import * as storage from "./storage.js";
 import { sanitizeFilename } from "./utils.js";
+import { RemoveLayerCommand } from "./commands/RemoveLayerCommand.js";
 
 export function initUI(env) {
   // env expects:
@@ -12,6 +13,8 @@ export function initUI(env) {
     overlayLoader: document.getElementById("overlayLoader"),
     btnAddPage: document.getElementById("btnAddPage"),
     btnDeletePage: document.getElementById("btnDeletePage"),
+    // NEW delete element button
+    btnDeleteElement: document.getElementById("btnDeleteElement"),
     btnBringFront: document.getElementById("btnBringFront"),
     btnSendBack: document.getElementById("btnSendBack"),
     btnUndo: document.getElementById("btnUndo"),
@@ -84,6 +87,26 @@ export function initUI(env) {
     env.project.removePageByIndex(env.project.activePageIndex);
     api.refreshPagesList();
     env.canvasManager.render();
+  });
+
+  // Delete selected element (NEW) — behaves like the Delete key (undoable)
+  nodes.btnDeleteElement?.addEventListener("click", () => {
+    const page = env.project.activePage;
+    const id = env.canvasManager.activeLayerId;
+    if (!id) {
+      alert("No element selected");
+      return;
+    }
+    // perform the same remove-layer command the keyboard uses
+    const cmd = new RemoveLayerCommand(
+      env.project,
+      env.project.activePageIndex,
+      id
+    );
+    env.history.execute(cmd);
+    env.canvasManager.setActiveLayerId(null);
+    env.canvasManager.render();
+    api.refreshPagesList();
   });
 
   // Add overlay
