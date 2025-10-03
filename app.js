@@ -62,14 +62,181 @@ function addOverlayFromFile(file) {
 }
 
 // small helpers for save/load passed into UI
+// Ensure all image layers across all pages have loaded (or timeout)
+async function ensureAllImagesLoaded(project, timeoutMs = 5000) {
+  const pendingLayers = [];
+  project.pages.forEach((p) => {
+    p.layers.forEach((l) => {
+      if (l.type === "image") {
+        // If the image is already loaded (we use imageDataUrl or _image) then skip
+        if (
+          !l.imageDataUrl &&
+          (!l._image || !l._image.complete || l._image.naturalWidth === 0)
+        ) {
+          pendingLayers.push(l.id);
+        }
+      }
+    });
+  });
+
+  if (pendingLayers.length === 0) return true;
+
+  return new Promise((resolve) => {
+    const start = Date.now();
+    function checkDone() {
+      const still = [];
+      project.pages.forEach((p) => {
+        p.layers.forEach((l) => {
+          if (l.type === "image") {
+            const loaded =
+              !!l.imageDataUrl ||
+              (l._image && l._image.complete && l._image.naturalWidth > 0);
+            if (!loaded) still.push(l.id);
+          }
+        });
+      });
+      if (still.length === 0) return resolve(true);
+      if (Date.now() - start > timeoutMs) return resolve(false); // timeout - resolve false so caller can decide
+      // else keep waiting
+    }
+
+    // listen for image-loaded events that we dispatch elsewhere in the app
+    function onLayerImageLoaded(e) {
+      try {
+        checkDone();
+      } catch (e) {}
+    }
+    window.addEventListener("layer:imageLoaded", onLayerImageLoaded);
+    window.addEventListener("project:pageImageLoaded", onLayerImageLoaded);
+
+    // do an immediate check too
+    checkDone();
+
+    // safety: poll every 200ms too (in case events missed)
+    const poll = setInterval(() => {
+      if (Date.now() - start > timeoutMs) {
+        clearInterval(poll);
+        window.removeEventListener("layer:imageLoaded", onLayerImageLoaded);
+        window.removeEventListener(
+          "project:pageImageLoaded",
+          onLayerImageLoaded
+        );
+        resolve(false);
+      } else {
+        try {
+          const done = (() => {
+            const still = [];
+            project.pages.forEach((p) =>
+              p.layers.forEach((l) => {
+                if (l.type === "image") {
+                  const loaded =
+                    !!l.imageDataUrl ||
+                    (l._image &&
+                      l._image.complete &&
+                      l._image.naturalWidth > 0);
+                  if (!loaded) still.push(l.id);
+                }
+              })
+            );
+            return still.length === 0;
+          })();
+          if (done) {
+            clearInterval(poll);
+            window.removeEventListener("layer:imageLoaded", onLayerImageLoaded);
+            window.removeEventListener(
+              "project:pageImageLoaded",
+              onLayerImageLoaded
+            );
+            resolve(true);
+          }
+        } catch (e) {}
+      }
+    }, 200);
+  });
+}
+
 async function saveProject() {
+  // Ensure title
   if (!project.title) {
     const t = prompt("Enter a title for this project:", "");
-    if (!t) return;
+    if (!t) return false;
     project.title = t.trim();
   }
-  const obj = project.toObject();
-  storage.saveProjectToLocal(obj);
+
+  // Wait for images to load (short timeout)
+  const okLoaded = await ensureAllImagesLoaded(project, 5000);
+  if (!okLoaded) {
+    const proceed = confirm(
+      "Some images are still loading. Save anyway? (Choose Cancel to wait a bit longer)"
+    );
+    if (!proceed) return false;
+  }
+
+  // Build serializable object from project
+  const obj = project.toObject
+    ? project.toObject()
+    : JSON.parse(JSON.stringify(project));
+
+  // Make sure imageDataUrl included if available
+  obj.pages?.forEach((p, i) => {
+    p.layers?.forEach((l, j) => {
+      if (l.type === "image") {
+        if (
+          !l.imageDataUrl &&
+          project.pages[i] &&
+          project.pages[i].layers[j] &&
+          project.pages[i].layers[j]._image
+        ) {
+          try {
+            const src = project.pages[i].layers[j]._image.src;
+            if (src) l.imageDataUrl = src;
+          } catch (e) {}
+        }
+      }
+    });
+  });
+
+  // Attempt save
+  const res = storage.saveProjectToLocal(obj);
+  if (res && res.ok) {
+    if (ui && typeof ui.populateSavedList === "function")
+      ui.populateSavedList();
+    return true;
+  }
+
+  // handle quota / failure
+  if (res && res.reason === "quota") {
+    const choice = confirm(
+      "Local storage is full. Would you like to download the project JSON as a file instead? (Cancel to abort)"
+    );
+    if (choice) {
+      // trigger a download fallback
+      const filename = `${(project.title || "portrait")
+        .replace(/[^a-z0-9-_ ]/gi, "")
+        .slice(0, 50)}-${new Date().toISOString()}.json`;
+      const blob = new Blob([JSON.stringify(obj, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      a.remove();
+      alert(
+        "Project downloaded as JSON. You can re-import it later with the Load button."
+      );
+      return true;
+    } else {
+      alert("Save cancelled.");
+      return false;
+    }
+  } else {
+    alert("Failed to save project (storage error). Check console for details.");
+    return false;
+  }
 }
 
 async function loadProjectById(id) {
